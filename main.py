@@ -109,8 +109,23 @@ def main():
         cur.close()
         conn.close()
         bot.send_message(callback.message.chat.id, info)  # Отправка сообщения с информацией о треках в чат
+      
+    @bot.message_handler(commands=['view_all'])
+    def view_all(message):  # функция для просморта всего плейлиста
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
 
-        
+        cur.execute('SELECT * FROM loadings')
+        loadings = cur.fetchall()
+
+        info = ''
+        for i in loadings:
+            info += f'Название трека:{i[1]}, Исполнитель: {i[2]}\n'
+        cur.close()
+        conn.close()
+        bot.send_message(message.chat.id, f'ВАШ ПЛЕЙЛИСТ: \n{info}')
+
 if __name__ == '__main__':
     main()
     bot.polling()  # обращаюсь к методу обьекта bot, чтобы бот мог принимать сообщения и отправлять их
+
