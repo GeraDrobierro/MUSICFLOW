@@ -163,7 +163,14 @@ def main():
         conn.close()
         bot.send_message(callback.message.chat.id, info)  # Отправка сообщения с информацией о треках в чат
 
+    @bot.message_handler(commands=['options'])  # декоратор для обработки команды /options
+        def song_name(message):
+            markup = types.ReplyKeyboardMarkup()
+            btn1 = types.KeyboardButton('/delete')
+            btn2 = types.KeyboardButton('/edit')
+            markup.row(btn1, btn2)
+            bot.send_message(message.chat.id, 'Что вы хотите сделать ?', reply_markup=markup)
+
 if __name__ == '__main__':
     main()
     bot.polling()  # обращаюсь к методу обьекта bot, чтобы бот мог принимать сообщения и отправлять их
-
