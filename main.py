@@ -1,7 +1,7 @@
 import telebot
 from telebot import types
 import sqlite3  # Импортирую библиотеку для работы с БД
-
+import os  # импортирую библиотеку для работы с сервером
 
 bot = telebot.TeleBot(token='7175694691:AAGbBUhvNaKbC93_BSQynmzSeu5GCV_NAGo')
 name = None  # переменная, в которой будут храниться значения с названием аудиофайла
@@ -164,12 +164,63 @@ def main():
         bot.send_message(callback.message.chat.id, info)  # Отправка сообщения с информацией о треках в чат
 
     @bot.message_handler(commands=['options'])  # декоратор для обработки команды /options
-        def song_name(message):
-            markup = types.ReplyKeyboardMarkup()
-            btn1 = types.KeyboardButton('/delete')
-            btn2 = types.KeyboardButton('/edit')
-            markup.row(btn1, btn2)
-            bot.send_message(message.chat.id, 'Что вы хотите сделать ?', reply_markup=markup)
+    def song_name(message):
+        markup = types.ReplyKeyboardMarkup()
+        btn1 = types.KeyboardButton('/delete')
+        btn2 = types.KeyboardButton('/edit')
+        markup.row(btn1, btn2)
+        bot.send_message(message.chat.id, 'Что вы хотите сделать ?', reply_markup=markup)
+
+    @bot.message_handler(commands=['delete'])
+    def preparation_for_delete(message):
+        bot.register_next_step_handler(message, delete)  # Регистрирую следующего обработчика для данного сообщения
+        bot.send_message(message.chat.id, 'Введи название песни')
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+
+        cur.execute('SELECT * FROM loadings')  # Выполняю SQL-запроса для выборки всех записей из таблицы loadings
+        loadings = cur.fetchall()
+        info = ''
+        for i in loadings:
+            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'  # Формирую строки с информацией о треках
+        bot.send_message(message.chat.id, info)   # Отправляю информации о всех треках в чат
+
+    def delete(message):
+
+        markup = types.ReplyKeyboardMarkup()
+        btn1 = types.KeyboardButton('/listen')
+        btn2 = types.KeyboardButton('/add')
+        btn3 = types.KeyboardButton('/view_all')
+        btn4 = types.KeyboardButton('/options')
+        markup.row(btn1, btn2, btn3, btn4)
+
+        checkout = message.text  # Получаю название трека для удаления
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+
+        cur.execute('DELETE FROM loadings WHERE name = ?', (checkout,))
+        # Удаляю записи с указанным названием из базы данных
+        conn.commit()  # Сохраняю изменения
+
+        file_path = os.path.join(f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{checkout}.mp3')  # Путь к файлу трека
+        try:
+            os.remove(file_path)   # Попытка удалить файл трека
+            print(f"Файл {checkout} успешно удален с сервера")
+            bot.send_message(message.chat.id, 'Запись успешно удалена')
+
+        except OSError as e:  # обрабатываю ошибку, если трека для удаления нет
+            print(f"Ошибка удаления файла на сервере: {e}")
+            bot.send_message(message.chat.id, 'Такого трека нет в твоём плейлисте, друг')
+
+        cur.execute('SELECT * FROM loadings')
+        loadings = cur.fetchall()
+        info = ''
+        for i in loadings:
+            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
+        cur.close()
+        conn.close()
+
+        bot.send_message(message.chat.id, info, reply_markup=markup)
 
 if __name__ == '__main__':
     main()
