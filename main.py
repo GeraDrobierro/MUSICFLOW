@@ -222,6 +222,69 @@ def main():
 
         bot.send_message(message.chat.id, info, reply_markup=markup)
 
+    @bot.message_handler(commands=['edit'])
+    def find_old_name(message):
+
+        bot.send_message(message.chat.id, 'Введи старое название песни')  # Запрос на ввод старого названия песни
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+
+        cur.execute('SELECT * FROM loadings')
+        loadings = cur.fetchall()
+        info = ''
+        for i in loadings:
+            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
+        bot.send_message(message.chat.id, info)
+        bot.register_next_step_handler(message, new_name)  # Регистрируем следующего обработчика для нового названия
+
+    def new_name(message):
+        global old_name   # Объявляем глобальную переменную для старого названия
+
+        old_name = message.text   # Получаем старое название песни
+        bot.send_message(message.chat.id, 'Введи новое название песни')  # Запрос на ввод нового названия песни
+        bot.register_next_step_handler(message, edit)  # Регистрация следующего обработчика для изменения
+
+    def edit(message):
+        global old_name  # Объявление глобальной переменной для старого названия
+
+        markup = types.ReplyKeyboardMarkup()
+        btn1 = types.KeyboardButton('/listen')
+        btn2 = types.KeyboardButton('/add')
+        btn3 = types.KeyboardButton('/view_all')
+        btn4 = types.KeyboardButton('/options')
+        markup.row(btn1, btn2, btn3, btn4)
+
+        checkout = old_name  # Присваиваем переменной старое название
+        the_new_name = message.text   # Полученаем новое название песни
+
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+
+        cur.execute("UPDATE loadings SET name = ? WHERE name = ?", (the_new_name, checkout))  # Обновление названия в БД
+        conn.commit()
+
+        file_path = f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{checkout}.mp3'   # Путь к старому файлу
+        new_file_path = f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{the_new_name}.mp3'  # Путь к новому файлу
+
+        try:
+            os.rename(file_path, new_file_path)  # Переименование файла на сервере
+            print(f"Файл {checkout} успешно обновлен на сервере")
+            bot.send_message(message.chat.id, 'Запись успешно обновлена')
+        except OSError as e:  # обработка ошибок, если трека для редактирования нет
+            print(f"Ошибка обновления файла на сервере: {e}")
+            bot.send_message(message.chat.id, 'Похоже такого трека нету в твоём плейлисте, друг')
+
+        cur.execute('SELECT * FROM loadings')
+        loadings = cur.fetchall()
+        info = ''
+        for i in loadings:
+            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
+
+        cur.close()
+        conn.close()
+
+        bot.send_message(message.chat.id, info, reply_markup=markup)
+
 if __name__ == '__main__':
     main()
     bot.polling()  # обращаюсь к методу обьекта bot, чтобы бот мог принимать сообщения и отправлять их
