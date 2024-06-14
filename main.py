@@ -284,7 +284,15 @@ def main():
         conn.close()
 
         bot.send_message(message.chat.id, info, reply_markup=markup)
-
+    @bot.message_handler()  # функция для обработки обычного текста
+    def txt_random_validation(message):
+        check = message.text
+        if check != '/add' or '/start' or '/listen':  
+            file = open('validation.txt', 'r')  # создаю файловый обьект для чтения
+            k = file.read()
+            bot.send_message(message.chat.id, f'{k}')  # отправляю информацию
+            file.close()  # закрываю файл
+            
 if __name__ == '__main__':
     main()
     bot.polling()  # обращаюсь к методу обьекта bot, чтобы бот мог принимать сообщения и отправлять их
