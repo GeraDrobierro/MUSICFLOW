@@ -1,298 +1,193 @@
 import telebot
+import sqlite3
 from telebot import types
-import sqlite3  # Импортирую библиотеку для работы с БД
-import os  # импортирую библиотеку для работы с сервером
+import os
+
 
 bot = telebot.TeleBot(token='7175694691:AAGbBUhvNaKbC93_BSQynmzSeu5GCV_NAGo')
-name = None  # переменная, в которой будут храниться значения с названием аудиофайла
-artist = None  # переменная, в которой будут храниться значения с названием артиста
+name = None
+artist = None
+old_name = None
 
 
 def main():
-    @bot.message_handler(commands=['help'])  # Создал декоратор, который принимает в себя команду /help
-    def help_info(message):
-        markup = types.ReplyKeyboardMarkup()
-        btn1 = types.KeyboardButton('/listen')  # Это основные кнопки бота
-        btn2 = types.KeyboardButton('/add')
-        btn3 = types.KeyboardButton('/view_all')
-        btn4 = types.KeyboardButton('/options')
-        markup.row(btn1, btn2, btn3, btn4)
-        file = open('help.txt', 'r') 
-        # Создаю переменную file и присваиваю ей файловый объект с режимом доступа только для чтения
-        k = file.read()  # переменной k передаем метод считывания данных из файла
-        bot.send_message(message.chat.id, f'{k}', reply_markup=markup)  
-        # бот отправляет сообщение с текстом и выводит кнопки на экран 
-        file.close()  # закрываю файл
+    def get_playlist_info():
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM loadings')
+        loadings = cur.fetchall()
+        cur.close()
+        conn.close()
+        info = '\n'.join(f'Название трека: {i[1]}, Исполнитель: {i[2]}' for i in loadings)
+        return info
 
-    @bot.message_handler(commands=['start'])  # декоратор, который получает значение ввиде команды \start
+    def create_main_markup():
+        markup = types.ReplyKeyboardMarkup()
+        btn_list = ['/listen', '/add', '/view_all', '/options']
+        for btn in btn_list:
+            markup.row(types.KeyboardButton(btn))
+        return markup
+
+    def send_playlist(message):
+        info = get_playlist_info()
+        bot.send_message(message.chat.id, 'ВАШ ПЛЕЙЛИСТ:')
+        bot.send_message(message.chat.id, info)
+
+    def start_message(message, text):
+        bot.send_message(message.chat.id, text, reply_markup=create_main_markup())
+
+    @bot.message_handler(commands=['help'])
+    def help_message(message):
+        with open('help.txt', 'r') as file:
+            k = file.read()
+        start_message(message, k)
+
+    @bot.message_handler(commands=['start'])
     def start(message):
-        markup = types.ReplyKeyboardMarkup()  # создаю обьект на основе класса
-        btn1 = types.KeyboardButton('/listen')  # основные кнопки бота
-        btn2 = types.KeyboardButton('/add')
-        btn3 = types.KeyboardButton('/view_all')
-        btn4 = types.KeyboardButton('/options')
-        markup.row(btn1, btn2, btn3, btn4)
-        bot.send_message(message.chat.id, f'Привет, {message.from_user.first_name}, напиши /help', reply_markup=markup)
-        # приветсвенное сообщение
+        start_message(message, f'Привет, {message.from_user.first_name}, напиши /help')
 
     @bot.message_handler(commands=['listen'])
     def listen(message):
         try:
-            conn = sqlite3.connect('music.sql')  # обращаюсь к БД
-            cur = conn.cursor()
-
-            cur.execute('SELECT * FROM loadings')
-            loadings = cur.fetchall()
-
-            info = ''
-            for i in loadings:
-                info += f'Название трека:{i[1]}, Исполнитель: {i[2]}\n'
-            cur.close()
-            conn.close()
-            bot.send_message(message.chat.id, f'ВАШ ПЛЕЙЛИСТ: \n{info}')  # информация о плейлисте
-            bot.register_next_step_handler(message, music_player)  # перенаправляю бота на выполнение следующей функции
-
-        except sqlite3.OperationalError:  # обработка ошибок, если пользователь ещё не загрузил трек
+            send_playlist(message)
+            bot.register_next_step_handler(message, music_player)
+        except sqlite3.OperationalError:
             bot.send_message(message.chat.id, 'Ты пока не загрузил песни')
 
     def music_player(message):
         conn = sqlite3.connect('music.sql')
         cur = conn.cursor()
-
-        cur.execute('SELECT * FROM loadings')  # Выполнение SQL-запроса для выборки всех записей из таблицы loadings
-        loadings = cur.fetchall()  # Получение результатов запроса
-        checkout = message.text  # Получение текста сообщения
-        for i in loadings:
-            if checkout in f'{i[1]}':  # Проверяю, содержится ли текст сообщения в названии трека
-                file = open(f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{checkout}.mp3', 'rb')  
-                # Открываю файл трека в двоичном режиме
-                bot.send_audio(message.chat.id, file, title=f'{checkout}')  
-                # Отправляю аудиофайл в чат с указанием заголовка
-                file.close()
-            else:
-                pass
-
-    @bot.message_handler(commands=['view_all'])
-    def view_all(message):  # функция для просморта всего плейлиста
-        conn = sqlite3.connect('music.sql')
-        cur = conn.cursor()
-
-        cur.execute('SELECT * FROM loadings')
-        loadings = cur.fetchall()
-
-        info = ''
-        for i in loadings:
-            info += f'Название трека:{i[1]}, Исполнитель: {i[2]}\n'
+        checkout = message.text
+        cur.execute('SELECT * FROM loadings WHERE name=?', (checkout,))
+        track = cur.fetchone()
         cur.close()
         conn.close()
-        bot.send_message(message.chat.id, f'ВАШ ПЛЕЙЛИСТ: \n{info}')
+        if track:
+            file_path = f'/Users/david/pythonProject274/MUSIC/{checkout}.mp3'
+            with open(file_path, 'rb') as file:
+                bot.send_audio(message.chat.id, file, title=f'{checkout}')
 
-    @bot.message_handler(['add'])
+    @bot.message_handler(commands=['view_all'])
+    def view_all(message):
+        bot.send_message(message.chat.id, get_playlist_info())
+
+    @bot.callback_query_handler(func=lambda callback: True)
+    def callback_message(callback):
+        bot.send_message(callback.message.chat.id, get_playlist_info())
+
+    @bot.message_handler(commands=['add'])
     def song_name(message):
-        conn = sqlite3.connect('music.sql')  # создаю обьект на основе класса sqlite3, т.е. создаю БД
-        cur = conn.cursor()  # Создаю курсор для работы с БД
-
-        cur.execute('CREATE TABLE IF NOT EXISTS loadings '
-                    '(id int auto_increment primary key, name varchar(50), artist varchar(50))')
-        # создаю таблицу с атрибутами name, artist и первичным ключом id
-        conn.commit()  # обращаюсь к БД с нашим запросом
-        cur.close()  # закрываю курсор
-        conn.close()  # закрываю БД
-
+        conn = sqlite3.connect('music.sql')
+        cur = conn.cursor()
+        cur.execute('CREATE TABLE IF NOT EXISTS loadings (id INTEGER PRIMARY KEY, name TEXT, artist TEXT)')
+        conn.commit()
+        cur.close()
+        conn.close()
         bot.send_message(message.chat.id, 'Введи название песни')
-        bot.register_next_step_handler(message, naming)  # перенаправляю бота выполнить следующую функцию
+        bot.register_next_step_handler(message, naming)
 
-    def naming(message):  # функция для 'регистрации' имени трека
-        global name  # обьявляю переменную name как глобальную
-
+    def naming(message):
+        global name
+        name = message.text
         bot.send_message(message.chat.id, 'отправь аудио')
-        name = message.text  # бот регистрирует название с сообщения пользователя
-
         bot.register_next_step_handler(message, save_audio)
 
-    @bot.message_handler(content_types=['audio'])  # декоратор, который приниимает как значение аудиофайл
-    def save_audio(message):  # функция сохранения аудиофайла в БД
+    @bot.message_handler(content_types=['audio'])
+    def save_audio(message):
         try:
-            global name  # обьявляю переменную name, artist как глобальную
-            global artist
-
+            global name, artist
             artist = message.audio.performer
-            # обращаюсь к методу обьекта message, в котором хранится инф. о исполнителе
+            audio_name = f"/Users/david/pythonProject274/MUSIC/{name}.mp3"
+            audio_data = bot.download_file(bot.get_file(message.audio.file_id).file_path)
 
-            audio_file_id = message.audio.file_id  # переменная, в которой храниться id сообщения
-            audio_file = bot.get_file(audio_file_id)  # переменная, которая представляет собой полученный файл
-            audio_file_path = audio_file.file_path
-
-            audio_name = f"/ВАШ_ПУТЬ_К_ПАПКЕ_/MUSIC/{name}.mp3"
-
-            audio_data = bot.download_file(audio_file_path)
-
-            with open(audio_name, 'wb') as file:  # Открытие файла для записи в двоичном режиме
-                file.write(audio_data)  # Запись данных аудиофайла в файл
+            with open(audio_name, 'wb') as file:
+                file.write(audio_data)
 
             conn = sqlite3.connect('music.sql')
             cur = conn.cursor()
-
-            cur.execute('INSERT INTO loadings (name, artist) VALUES ("%s", "%s")' % (name, artist))
-            # Выполнение SQL-запроса для добавления информации об аудиофайле в БД
+            cur.execute('INSERT INTO loadings (name, artist) VALUES (?, ?)', (name, artist))
             conn.commit()
             cur.close()
             conn.close()
 
             markup = types.InlineKeyboardMarkup()
-            bot.delete_message(message.chat.id, message.message_id)  # Удаление сообщения с аудиофайлом
             markup.add(types.InlineKeyboardButton('Весь плейлист', callback_data='loadings'))
-            # Добавление кнопки к клавиатуре и вызываю функцию loadings
+            bot.delete_message(message.chat.id, message.message_id)
             bot.send_message(message.chat.id, 'Трек добавлен', reply_markup=markup)
-        except AttributeError:  # обработка исключения, если сообщение не является аудиофайлом
+        except AttributeError:
             bot.send_message(message.chat.id, 'Друг, похоже ты отправил мне не аудиофайл. Отправь мне аудио, пожалуйста')
 
-    @bot.callback_query_handler(func=lambda callback: True)  # Декоратор для обработки callback-запросов
-    def callback_message(callback):  # Функция, которая будет вызываться при callback-запросах
-
-        conn = sqlite3.connect('music.sql')
-        cur = conn.cursor()
-
-        cur.execute('SELECT * FROM loadings')
-        loadings = cur.fetchall()
-
-        info = ''   # Переменная для хранения информации о треках
-        for i in loadings:
-            info += f'Название трека:{i[1]}, Исполнитель: {i[2]}\n'  # Формирование строки информации о треке
-        cur.close()
-        conn.close()
-        bot.send_message(callback.message.chat.id, info)  # Отправка сообщения с информацией о треках в чат
-
-    @bot.message_handler(commands=['options'])  # декоратор для обработки команды /options
-    def song_name(message):
+    @bot.message_handler(commands=['options'])
+    def options_message(message):
         markup = types.ReplyKeyboardMarkup()
-        btn1 = types.KeyboardButton('/delete')
-        btn2 = types.KeyboardButton('/edit')
-        markup.row(btn1, btn2)
-        bot.send_message(message.chat.id, 'Что вы хотите сделать ?', reply_markup=markup)
+        btn_list = ['/delete', '/edit']
+        for btn in btn_list:
+            markup.row(types.KeyboardButton(btn))
+        bot.send_message(message.chat.id, 'Что вы хотите сделать?', reply_markup=markup)
 
     @bot.message_handler(commands=['delete'])
     def preparation_for_delete(message):
-        bot.register_next_step_handler(message, delete)  # Регистрирую следующего обработчика для данного сообщения
         bot.send_message(message.chat.id, 'Введи название песни')
-        conn = sqlite3.connect('music.sql')
-        cur = conn.cursor()
-
-        cur.execute('SELECT * FROM loadings')  # Выполняю SQL-запроса для выборки всех записей из таблицы loadings
-        loadings = cur.fetchall()
-        info = ''
-        for i in loadings:
-            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'  # Формирую строки с информацией о треках
-        bot.send_message(message.chat.id, info)   # Отправляю информации о всех треках в чат
+        bot.send_message(message.chat.id, get_playlist_info())
+        bot.register_next_step_handler(message, delete)
 
     def delete(message):
-
-        markup = types.ReplyKeyboardMarkup()
-        btn1 = types.KeyboardButton('/listen')
-        btn2 = types.KeyboardButton('/add')
-        btn3 = types.KeyboardButton('/view_all')
-        btn4 = types.KeyboardButton('/options')
-        markup.row(btn1, btn2, btn3, btn4)
-
-        checkout = message.text  # Получаю название трека для удаления
+        track_name = message.text
         conn = sqlite3.connect('music.sql')
         cur = conn.cursor()
-
-        cur.execute('DELETE FROM loadings WHERE name = ?', (checkout,))
-        # Удаляю записи с указанным названием из базы данных
-        conn.commit()  # Сохраняю изменения
-
-        file_path = os.path.join(f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{checkout}.mp3')  # Путь к файлу трека
-        try:
-            os.remove(file_path)   # Попытка удалить файл трека
-            print(f"Файл {checkout} успешно удален с сервера")
-            bot.send_message(message.chat.id, 'Запись успешно удалена')
-
-        except OSError as e:  # обрабатываю ошибку, если трека для удаления нет
-            print(f"Ошибка удаления файла на сервере: {e}")
-            bot.send_message(message.chat.id, 'Такого трека нет в твоём плейлисте, друг')
-
-        cur.execute('SELECT * FROM loadings')
-        loadings = cur.fetchall()
-        info = ''
-        for i in loadings:
-            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
+        cur.execute('DELETE FROM loadings WHERE name = ?', (track_name,))
+        conn.commit()
         cur.close()
         conn.close()
 
-        bot.send_message(message.chat.id, info, reply_markup=markup)
+        file_path = f'/Users/david/pythonProject274/MUSIC/{track_name}.mp3'
+        try:
+            os.remove(file_path)
+            bot.send_message(message.chat.id, 'Запись успешно удалена')
+        except OSError:
+            bot.send_message(message.chat.id, 'Такого трека нет в твоём плейлисте, друг')
+        bot.send_message(message.chat.id, get_playlist_info(), reply_markup=create_main_markup())
 
     @bot.message_handler(commands=['edit'])
     def find_old_name(message):
-
-        bot.send_message(message.chat.id, 'Введи старое название песни')  # Запрос на ввод старого названия песни
-        conn = sqlite3.connect('music.sql')
-        cur = conn.cursor()
-
-        cur.execute('SELECT * FROM loadings')
-        loadings = cur.fetchall()
-        info = ''
-        for i in loadings:
-            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
-        bot.send_message(message.chat.id, info)
-        bot.register_next_step_handler(message, new_name)  # Регистрируем следующего обработчика для нового названия
+        bot.send_message(message.chat.id, 'Введи старое название песни')
+        bot.send_message(message.chat.id, get_playlist_info())
+        bot.register_next_step_handler(message, new_name)
 
     def new_name(message):
-        global old_name   # Объявляем глобальную переменную для старого названия
-
-        old_name = message.text   # Получаем старое название песни
-        bot.send_message(message.chat.id, 'Введи новое название песни')  # Запрос на ввод нового названия песни
-        bot.register_next_step_handler(message, edit)  # Регистрация следующего обработчика для изменения
+        global old_name
+        old_name = message.text
+        bot.send_message(message.chat.id, 'Введи новое название песни')
+        bot.register_next_step_handler(message, edit)
 
     def edit(message):
-        global old_name  # Объявление глобальной переменной для старого названия
-
-        markup = types.ReplyKeyboardMarkup()
-        btn1 = types.KeyboardButton('/listen')
-        btn2 = types.KeyboardButton('/add')
-        btn3 = types.KeyboardButton('/view_all')
-        btn4 = types.KeyboardButton('/options')
-        markup.row(btn1, btn2, btn3, btn4)
-
-        checkout = old_name  # Присваиваем переменной старое название
-        the_new_name = message.text   # Полученаем новое название песни
-
+        global old_name
+        the_new_name = message.text
         conn = sqlite3.connect('music.sql')
         cur = conn.cursor()
-
-        cur.execute("UPDATE loadings SET name = ? WHERE name = ?", (the_new_name, checkout))  # Обновление названия в БД
+        cur.execute("UPDATE loadings SET name = ? WHERE name = ?", (the_new_name, old_name))
         conn.commit()
-
-        file_path = f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{checkout}.mp3'   # Путь к старому файлу
-        new_file_path = f'/ПУТЬ_К_ПАПКЕ_/MUSIC/{the_new_name}.mp3'  # Путь к новому файлу
-
-        try:
-            os.rename(file_path, new_file_path)  # Переименование файла на сервере
-            print(f"Файл {checkout} успешно обновлен на сервере")
-            bot.send_message(message.chat.id, 'Запись успешно обновлена')
-        except OSError as e:  # обработка ошибок, если трека для редактирования нет
-            print(f"Ошибка обновления файла на сервере: {e}")
-            bot.send_message(message.chat.id, 'Похоже такого трека нету в твоём плейлисте, друг')
-
-        cur.execute('SELECT * FROM loadings')
-        loadings = cur.fetchall()
-        info = ''
-        for i in loadings:
-            info += f'Название трека: {i[1]}, Исполнитель: {i[2]}\n'
-
         cur.close()
         conn.close()
 
-        bot.send_message(message.chat.id, info, reply_markup=markup)
-    @bot.message_handler()  # функция для обработки обычного текста
+        old_file_path = f'/Users/david/pythonProject274/MUSIC/{old_name}.mp3'
+        new_file_path = f'/Users/david/pythonProject274/MUSIC/{the_new_name}.mp3'
+        try:
+            os.rename(old_file_path, new_file_path)
+            bot.send_message(message.chat.id, 'Запись успешно обновлена')
+        except OSError:
+            bot.send_message(message.chat.id, 'Похоже такого трека нет в твоём плейлисте, друг')
+        bot.send_message(message.chat.id, get_playlist_info(), reply_markup=create_main_markup())
+
+    @bot.message_handler()
     def txt_random_validation(message):
         check = message.text
-        if check != '/add' or '/start' or '/listen':  
-            file = open('validation.txt', 'r')  # создаю файловый обьект для чтения
-            k = file.read()
-            bot.send_message(message.chat.id, f'{k}')  # отправляю информацию
-            file.close()  # закрываю файл
-            
+        if check not in ['/add', '/start', '/listen']:
+            with open('validation.txt', 'r') as file:
+                k = file.read()
+            bot.send_message(message.chat.id, k)
+
+    bot.polling()
+
 if __name__ == '__main__':
     main()
-    bot.polling()  # обращаюсь к методу обьекта bot, чтобы бот мог принимать сообщения и отправлять их
